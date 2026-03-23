@@ -9,6 +9,7 @@ export type UserRole = 'sender' | 'receiver' | 'admin';
 export interface User {
   id: string;
   name: string;
+  email: string;
   role: UserRole;
   department: string;
 }

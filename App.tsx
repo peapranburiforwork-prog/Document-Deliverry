@@ -27,6 +27,66 @@ const App: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<'tasks' | 'all'>('tasks');
   const [showReport, setShowReport] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isAdminConfigured, setIsAdminConfigured] = useState(false);
+  const [hasSheet, setHasSheet] = useState(false);
+
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        // 1. Check server session (Google Auth)
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const user = await response.json();
+          setCurrentUser(user);
+          setIsAuthLoading(false);
+          return;
+        }
+        
+        // 2. Check localStorage (Manual Auth)
+        const savedUser = localStorage.getItem('docdelivery_user');
+        if (savedUser) {
+          setCurrentUser(JSON.parse(savedUser));
+        }
+      } catch (error) {
+        console.error('Auth check failed');
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
+    const checkAdminStatus = async () => {
+      try {
+        const response = await fetch('/api/admin/status');
+        const data = await response.json();
+        setIsAdminConfigured(data.isConfigured);
+        setHasSheet(data.hasSheet);
+      } catch (error) {}
+    };
+
+    checkAuth();
+    checkAdminStatus();
+  }, []);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    if (!user.email) {
+      localStorage.setItem('docdelivery_user', JSON.stringify(user));
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      localStorage.removeItem('docdelivery_user');
+      setCurrentUser(null);
+      setShowForm(false);
+      setActiveTab('tasks');
+    } catch (error) {
+      console.error('Logout failed');
+    }
+  };
 
   // Expose updateDocuments to window for ReportModal to use
   useEffect(() => {
@@ -47,6 +107,27 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Load from localStorage if available
+    const savedDocs = localStorage.getItem('docdelivery_docs');
+    if (savedDocs) {
+      try {
+        const parsed = JSON.parse(savedDocs);
+        const processed = parsed.map((doc: any) => ({
+          ...doc,
+          submittedAt: new Date(doc.submittedAt),
+          receivedAt: doc.receivedAt ? new Date(doc.receivedAt) : undefined,
+          history: doc.history.map((h: any) => ({
+            ...h,
+            timestamp: new Date(h.timestamp)
+          }))
+        }));
+        setDocuments(processed);
+        return;
+      } catch (e) {
+        console.error('Failed to parse saved docs');
+      }
+    }
+
     const today = new Date();
     const yesterday = new Date(Date.now() - 86400000);
     const twoDaysAgo = new Date(Date.now() - 86400000 * 2);
@@ -104,6 +185,40 @@ const App: React.FC = () => {
     ].sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
     setDocuments(initialDocuments);
   }, []);
+
+  // Save to localStorage whenever documents change
+  useEffect(() => {
+    if (documents.length > 0) {
+      localStorage.setItem('docdelivery_docs', JSON.stringify(documents));
+    }
+  }, [documents]);
+
+  // Auto-sync to Google Sheets whenever documents change
+  useEffect(() => {
+    if (isAdminConfigured && documents.length > 0) {
+      const sync = async () => {
+        try {
+          const response = await fetch('/api/sheets/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ documents })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              setHasSheet(true);
+            }
+          }
+        } catch (error) {
+          console.error('Auto-sync failed');
+        }
+      };
+      
+      const timeout = setTimeout(sync, 3000);
+      return () => clearTimeout(timeout);
+    }
+  }, [documents, isAdminConfigured]);
 
   const addDocument = (doc: Omit<Document, 'id' | 'submittedAt' | 'status' | 'verificationCode' | 'senderId' | 'history'> & { initialMessage?: string }) => {
     if (!currentUser) return;
@@ -196,14 +311,18 @@ const App: React.FC = () => {
     );
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    setShowForm(false);
-    setActiveTab('tasks');
-  };
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-pink-50 flex items-center justify-center">
+        <div className="animate-bounce-soft text-brand-500">
+          <ShieldCheck size={64} />
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
-    return <AuthScreen onLogin={setCurrentUser} />;
+    return <AuthScreen onLogin={handleLogin} />;
   }
 
   const isToday = (someDate: Date) => {
@@ -414,6 +533,10 @@ const App: React.FC = () => {
         isOpen={showReport} 
         onClose={() => setShowReport(false)} 
         documents={documents} 
+        isAdminConfigured={isAdminConfigured}
+        hasSheet={hasSheet}
+        onAdminConfigured={() => setIsAdminConfigured(true)}
+        onUpdateDocuments={(newDocs) => setDocuments(newDocs)}
       />
     </div>
   );

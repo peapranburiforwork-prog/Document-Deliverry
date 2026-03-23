@@ -18,34 +18,43 @@ interface ReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   documents: Document[];
+  isAdminConfigured: boolean;
+  hasSheet: boolean;
+  onAdminConfigured: () => void;
+  onUpdateDocuments: (newDocs: Document[]) => void;
 }
 
-const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents }) => {
+const ReportModal: React.FC<ReportModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  documents, 
+  isAdminConfigured, 
+  hasSheet,
+  onAdminConfigured,
+  onUpdateDocuments
+}) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
-  const [sheetId, setSheetId] = useState<string | null>(localStorage.getItem('docdelivery_sheet_id'));
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      checkAuthStatus();
-      if (sheetId) {
-        setSheetUrl(`https://docs.google.com/spreadsheets/d/${sheetId}`);
-      }
+    if (isOpen && hasSheet) {
+      // We don't have the sheetId directly anymore, but we can fetch the status
+      // or just assume the server knows it.
+      // For the URL, we can fetch it once or just use a generic link if we know the ID.
+      // Let's fetch the admin status again to get the sheetId if needed, 
+      // or just let the sync handle it.
+      const fetchStatus = async () => {
+        try {
+          const response = await fetch('/api/admin/status');
+          const data = await response.json();
+          // We should probably return the sheetId in the status if we want to show the link
+        } catch (e) {}
+      };
+      fetchStatus();
     }
-  }, [isOpen]);
-
-  const checkAuthStatus = async () => {
-    try {
-      const response = await fetch('/api/auth/google/status');
-      const data = await response.json();
-      setIsAuthenticated(data.isAuthenticated);
-    } catch (err) {
-      console.error('Error checking auth status:', err);
-    }
-  };
+  }, [isOpen, hasSheet]);
 
   const handleConnect = async () => {
     try {
@@ -61,7 +70,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents })
 
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
-          setIsAuthenticated(true);
+          onAdminConfigured();
           window.removeEventListener('message', handleMessage);
         }
       };
@@ -85,8 +94,6 @@ const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents })
 
       const data = await response.json();
       setSheetUrl(data.url);
-      setSheetId(data.sheetId);
-      localStorage.setItem('docdelivery_sheet_id', data.sheetId);
     } catch (err) {
       setError('เกิดข้อผิดพลาดในการเชื่อมต่อกับ Google Sheets');
     } finally {
@@ -95,17 +102,14 @@ const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents })
   };
 
   const handleLoad = async () => {
-    if (!sheetId) return;
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/sheets/load?sheetId=${sheetId}`);
+      const response = await fetch('/api/sheets/load');
       if (!response.ok) throw new Error('Failed to load from Google Sheets');
       
       const data = await response.json();
-      // We need a way to update the documents in App.tsx
-      // Let's assume we'll pass an onUpdateDocuments prop
-      (window as any).updateDocuments(data.documents);
+      onUpdateDocuments(data.documents);
       onClose();
     } catch (err) {
       setError('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้');
@@ -213,21 +217,23 @@ const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents })
                   เชื่อมต่อกับ Google Drive เพื่อจัดเก็บข้อมูลไทม์ไลน์และข้อความต่างๆ ลงใน Google Sheets โดยอัตโนมัติ (ข้อมูลจะถูกเก็บไว้ในบัญชีของผู้ที่ทำการซิงค์)
                 </p>
 
-                {sheetUrl ? (
+                {sheetUrl || hasSheet ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm bg-emerald-50 p-3 rounded-xl">
                       <CheckCircle size={18} />
-                      ซิงค์ข้อมูลสำเร็จแล้ว!
+                      เชื่อมต่อกับ Google Sheets แล้ว
                     </div>
-                    <a 
-                      href={sheetUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="btn-primary w-full py-3 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20"
-                    >
-                      <ExternalLink size={18} />
-                      เปิด Google Sheets
-                    </a>
+                    {sheetUrl && (
+                      <a 
+                        href={sheetUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="btn-primary w-full py-3 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20"
+                      >
+                        <ExternalLink size={18} />
+                        เปิด Google Sheets
+                      </a>
+                    )}
                     <button 
                       onClick={handleLoad}
                       disabled={isLoading}
@@ -240,14 +246,21 @@ const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, documents })
                       )}
                       ดึงข้อมูลจาก Google Sheets
                     </button>
+                    <button 
+                      onClick={handleSync}
+                      disabled={isSyncing}
+                      className="w-full py-3 text-slate-400 text-xs font-bold hover:text-slate-600 transition-all"
+                    >
+                      {isSyncing ? 'กำลังอัปเดต...' : 'อัปเดตข้อมูลเดี๋ยวนี้'}
+                    </button>
                   </div>
-                ) : !isAuthenticated ? (
+                ) : !isAdminConfigured ? (
                   <button 
                     onClick={handleConnect}
                     className="btn-primary w-full py-4"
                   >
                     <ShieldCheck size={20} />
-                    เชื่อมต่อ Google Account
+                    เชื่อมต่อ Google Account (Admin)
                   </button>
                 ) : (
                   <button 
