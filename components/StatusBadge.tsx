@@ -1,37 +1,38 @@
 
 import React from 'react';
 import { DocumentStatus } from '../types';
+import { Clock, CheckCircle } from 'lucide-react';
 
 interface StatusBadgeProps {
   status: DocumentStatus;
 }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
-  const getStatusColor = () => {
+  const getStatusStyles = () => {
     switch (status) {
       case DocumentStatus.PendingReceipt:
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300'; // Yellow
+        return {
+          container: 'bg-cute-yellow/20 text-amber-600 border-cute-yellow/30',
+          icon: <Clock size={12} className="animate-spin-slow" />
+        };
       case DocumentStatus.Received:
-        return 'bg-green-100 text-green-800 border-green-300'; // Green
+        return {
+          container: 'bg-cute-mint/20 text-emerald-600 border-cute-mint/30',
+          icon: <CheckCircle size={12} />
+        };
       default:
-        return 'bg-slate-100 text-slate-800 border-slate-300';
+        return {
+          container: 'bg-slate-50 text-slate-600 border-slate-100',
+          icon: null
+        };
     }
   };
 
-  const getStatusDotColor = () => {
-    switch (status) {
-        case DocumentStatus.PendingReceipt:
-            return 'bg-yellow-500 animate-pulse'; // Yellow
-        case DocumentStatus.Received:
-            return 'bg-green-500'; // Green
-        default:
-            return 'bg-slate-500';
-    }
-  }
+  const styles = getStatusStyles();
 
   return (
-    <div className={`inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold rounded-full border ${getStatusColor()}`}>
-       <span className={`h-2 w-2 rounded-full ${getStatusDotColor()}`}></span>
+    <div className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border ${styles.container}`}>
+      {styles.icon}
       {status}
     </div>
   );

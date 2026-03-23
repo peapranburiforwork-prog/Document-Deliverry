@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { motion } from 'framer-motion';
 
 interface SummaryCardProps {
   title: string;
@@ -10,21 +11,30 @@ interface SummaryCardProps {
 
 const SummaryCard: React.FC<SummaryCardProps> = ({ title, count, icon, color }) => {
   const colorClasses = {
-    blue: 'bg-blue-100 text-blue-600',
-    yellow: 'bg-yellow-100 text-yellow-600',
-    green: 'bg-green-100 text-green-600',
+    blue: 'bg-cute-sky/20 text-blue-600 border-cute-sky/30',
+    yellow: 'bg-cute-yellow/20 text-amber-600 border-cute-yellow/30',
+    green: 'bg-cute-mint/20 text-emerald-600 border-cute-mint/30',
+  };
+
+  const iconBgClasses = {
+    blue: 'bg-cute-sky/40',
+    yellow: 'bg-cute-yellow/40',
+    green: 'bg-cute-mint/40',
   };
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-md flex items-center gap-4">
-      <div className={`p-3 rounded-full ${colorClasses[color]}`}>
-        {React.cloneElement(icon as React.ReactElement, { className: "h-6 w-6" })}
+    <motion.div 
+      whileHover={{ y: -5 }}
+      className={`glass-card p-6 rounded-[2rem] flex items-center gap-5 border ${colorClasses[color]}`}
+    >
+      <div className={`p-4 rounded-2xl ${iconBgClasses[color]}`}>
+        {React.cloneElement(icon as React.ReactElement, { size: 28 })}
       </div>
       <div>
-        <p className="text-sm text-slate-500">{title}</p>
-        <p className="text-2xl font-bold text-slate-800">{count}</p>
+        <p className="text-xs font-black uppercase tracking-widest opacity-70">{title}</p>
+        <p className="text-3xl font-black">{count}</p>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

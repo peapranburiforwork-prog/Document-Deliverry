@@ -1,17 +1,50 @@
 
 import React, { useState, useEffect } from 'react';
-import { Document, DocumentStatus } from './types';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Document, DocumentStatus, User } from './types';
 import DocumentForm from './components/DocumentForm';
 import DocumentList from './components/DocumentList';
 import SummaryCard from './components/SummaryCard';
-import { LogoIcon, PlusCircleIcon, ClockIcon, CheckCircleIcon, ArchiveIcon } from './components/icons';
-
-type UserRole = 'sender' | 'approver';
+import AuthScreen from './components/AuthScreen';
+import ReportModal from './components/ReportModal';
+import { 
+  PlusCircle, 
+  Clock, 
+  CheckCircle, 
+  Archive, 
+  LogOut, 
+  ShieldCheck,
+  FileText,
+  TrendingUp,
+  Database,
+  LayoutGrid,
+  FileSpreadsheet
+} from 'lucide-react';
 
 const App: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [userRole, setUserRole] = useState<UserRole>('sender');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tasks' | 'all'>('tasks');
+  const [showReport, setShowReport] = useState(false);
+
+  // Expose updateDocuments to window for ReportModal to use
+  useEffect(() => {
+    (window as any).updateDocuments = (newDocs: Document[]) => {
+      // Convert date strings back to Date objects if needed
+      const processedDocs = newDocs.map(doc => ({
+        ...doc,
+        submittedAt: new Date(doc.submittedAt),
+        receivedAt: doc.receivedAt ? new Date(doc.receivedAt) : undefined,
+        history: doc.history.map(h => ({
+          ...h,
+          timestamp: new Date(h.timestamp)
+        }))
+      }));
+      setDocuments(processedDocs);
+    };
+    return () => { delete (window as any).updateDocuments; };
+  }, []);
 
   useEffect(() => {
     const today = new Date();
@@ -19,87 +52,369 @@ const App: React.FC = () => {
     const twoDaysAgo = new Date(Date.now() - 86400000 * 2);
 
     const initialDocuments: Document[] = [
-      { id: 'doc-1', documentNumber: 'PV-202405-001', item: 'ค่าทำความสะอาดเดือน พ.ค.', payee: 'บริษัท คลีน จำกัด', amount: 5000, sender: 'ฝ่ายธุรการ', submittedAt: twoDaysAgo, status: DocumentStatus.Received, receivedBy: 'สมศรี รักสะอาด', receivedAt: yesterday },
-      { id: 'doc-2', documentNumber: 'PV-202405-002', item: 'ค่าเช่า Server', payee: 'คลาวด์ คอมพิวติ้ง', amount: 12500, sender: 'ฝ่าย IT', submittedAt: yesterday, status: DocumentStatus.PendingReceipt },
-      { id: 'doc-3', documentNumber: 'PV-202405-003', item: 'ค่าโฆษณา Facebook', payee: 'Meta Inc.', amount: 8200, sender: 'ฝ่ายการตลาด', submittedAt: new Date(Date.now() - 3600000), status: DocumentStatus.PendingReceipt },
-      { id: 'doc-4', documentNumber: 'PV-202405-004', item: 'ค่าจัดเลี้ยง', payee: 'ร้านอร่อยโภชนา', amount: 3500, sender: 'ฝ่ายบุคคล', submittedAt: new Date(), status: DocumentStatus.PendingReceipt },
+      { 
+        id: 'doc-1', 
+        documentNumber: 'PV-202405-001', 
+        item: 'ค่าทำความสะอาดเดือน พ.ค.', 
+        payee: 'บริษัท คลีน จำกัด', 
+        amount: 5000, 
+        sender: 'สมชาย ใจดี', 
+        senderId: 'user-1',
+        submittedAt: twoDaysAgo, 
+        status: DocumentStatus.Received, 
+        receivedBy: 'สมศรี รักสะอาด', 
+        receivedById: 'user-2',
+        receivedAt: yesterday,
+        verificationCode: '1234',
+        history: [
+          { timestamp: twoDaysAgo, user: 'สมชาย ใจดี', action: 'สร้างเอกสาร', message: 'เริ่มนำส่งเอกสาร' },
+          { timestamp: yesterday, user: 'สมศรี รักสะอาด', action: 'รับมอบเอกสาร', message: 'ตรวจสอบความถูกต้องแล้ว' }
+        ]
+      },
+      { 
+        id: 'doc-2', 
+        documentNumber: 'PV-202405-002', 
+        item: 'ค่าเช่า Server', 
+        payee: 'คลาวด์ คอมพิวติ้ง', 
+        amount: 12500, 
+        sender: 'สมชาย ใจดี', 
+        senderId: 'user-1',
+        submittedAt: yesterday, 
+        status: DocumentStatus.PendingReceipt,
+        verificationCode: '5678',
+        history: [
+          { timestamp: yesterday, user: 'สมชาย ใจดี', action: 'สร้างเอกสาร', message: 'เริ่มนำส่งเอกสาร' }
+        ]
+      },
+      { 
+        id: 'doc-3', 
+        documentNumber: 'PV-202405-003', 
+        item: 'ค่าน้ำประปาประจำเดือน', 
+        payee: 'การประปาฯ', 
+        amount: 850, 
+        sender: 'วิชัย มั่นคง', 
+        senderId: 'user-3',
+        submittedAt: today, 
+        status: DocumentStatus.PendingReceipt,
+        verificationCode: '9999',
+        history: [
+          { timestamp: today, user: 'วิชัย มั่นคง', action: 'สร้างเอกสาร', message: 'เริ่มนำส่งเอกสาร' }
+        ]
+      },
     ].sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
     setDocuments(initialDocuments);
   }, []);
 
-  const addDocument = (doc: Omit<Document, 'id' | 'submittedAt' | 'status'>) => {
-    const newDoc: Document = { ...doc, id: `doc-${Date.now()}`, submittedAt: new Date(), status: DocumentStatus.PendingReceipt };
+  const addDocument = (doc: Omit<Document, 'id' | 'submittedAt' | 'status' | 'verificationCode' | 'senderId' | 'history'> & { initialMessage?: string }) => {
+    if (!currentUser) return;
+    
+    const { initialMessage, ...docData } = doc;
+    const now = new Date();
+    const newDoc: Document = { 
+      ...docData, 
+      id: `doc-${Date.now()}`, 
+      submittedAt: now, 
+      status: DocumentStatus.PendingReceipt,
+      senderId: currentUser.id,
+      verificationCode: Math.floor(1000 + Math.random() * 9000).toString(), // Generate 4-digit code
+      history: [
+        { 
+          timestamp: now, 
+          user: currentUser.name, 
+          action: 'สร้างเอกสาร', 
+          message: initialMessage || 'เริ่มนำส่งเอกสาร' 
+        }
+      ]
+    };
     setDocuments(prevDocs => [newDoc, ...prevDocs]);
     setShowForm(false);
   };
 
   const confirmReceipt = (id: string, receiverName: string) => {
+    if (!currentUser) return;
+    const now = new Date();
     setDocuments(prevDocs => 
       prevDocs.map(doc => 
         doc.id === id 
-          ? { ...doc, status: DocumentStatus.Received, receivedBy: receiverName, receivedAt: new Date() } 
+          ? { 
+              ...doc, 
+              status: DocumentStatus.Received, 
+              receivedBy: receiverName, 
+              receivedById: currentUser.id,
+              receivedAt: now,
+              history: [
+                ...doc.history,
+                { timestamp: now, user: receiverName, action: 'รับมอบเอกสาร', message: 'ยืนยันการรับมอบเอกสารเรียบร้อย' }
+              ]
+            } 
           : doc
       )
     );
   };
-  
-  const RoleSwitcher = () => (
-    <div className="flex bg-slate-200 rounded-full p-1 text-sm font-semibold">
-        <button onClick={() => setUserRole('sender')} className={`px-4 py-1.5 rounded-full transition-colors ${userRole === 'sender' ? 'bg-white text-blue-600 shadow' : 'text-slate-600'}`}>Sender (ผสน.)</button>
-        <button onClick={() => setUserRole('approver')} className={`px-4 py-1.5 rounded-full transition-colors ${userRole === 'approver' ? 'bg-white text-blue-600 shadow' : 'text-slate-600'}`}>Receiver (ผบร.)</button>
-    </div>
-  );
+
+  const deleteDocument = (id: string) => {
+    if (currentUser?.role !== 'admin') return;
+    if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบเอกสารนี้?')) {
+      setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== id));
+    }
+  };
+
+  const updateDocument = (id: string, updates: Partial<Document>) => {
+    if (currentUser?.role !== 'admin') return;
+    const now = new Date();
+    setDocuments(prevDocs => 
+      prevDocs.map(doc => 
+        doc.id === id 
+          ? { 
+              ...doc, 
+              ...updates,
+              history: [
+                ...doc.history,
+                { timestamp: now, user: currentUser.name, action: 'แก้ไขข้อมูล', message: 'ผู้ดูแลระบบแก้ไขข้อมูลเอกสาร' }
+              ]
+            } 
+          : doc
+      )
+    );
+  };
+
+  const addHistoryMessage = (id: string, message: string) => {
+    if (!currentUser) return;
+    const now = new Date();
+    setDocuments(prevDocs => 
+      prevDocs.map(doc => 
+        doc.id === id 
+          ? { 
+              ...doc, 
+              history: [
+                ...doc.history,
+                { timestamp: now, user: currentUser.name, action: 'บันทึกข้อความ', message }
+              ]
+            } 
+          : doc
+      )
+    );
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setShowForm(false);
+    setActiveTab('tasks');
+  };
+
+  if (!currentUser) {
+    return <AuthScreen onLogin={setCurrentUser} />;
+  }
 
   const isToday = (someDate: Date) => {
-    const today = new Date()
-    return someDate.getDate() == today.getDate() &&
-      someDate.getMonth() == today.getMonth() &&
-      someDate.getFullYear() == today.getFullYear()
-  }
+    const today = new Date();
+    return someDate.getDate() === today.getDate() &&
+      someDate.getMonth() === today.getMonth() &&
+      someDate.getFullYear() === today.getFullYear();
+  };
   
   const docsSentToday = documents.filter(doc => isToday(doc.submittedAt));
   const docsPendingReceipt = documents.filter(doc => doc.status === DocumentStatus.PendingReceipt);
   const docsReceived = documents.filter(doc => doc.status === DocumentStatus.Received);
   
-  const documentsToDisplay = userRole === 'sender' ? documents : docsPendingReceipt;
+  const documentsToDisplay = activeTab === 'all'
+    ? documents
+    : (currentUser.role === 'sender' 
+        ? documents.filter(d => d.senderId === currentUser.id)
+        : docsPendingReceipt);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-3"><LogoIcon className="h-9 w-9 text-blue-600" /><div><h1 className="text-lg font-bold text-slate-800">Document Delivery</h1><p className="text-xs text-slate-500">ระบบติดตามการนำส่งเอกสาร</p></div></div>
-                <div className="hidden sm:block"><RoleSwitcher /></div>
+    <div className="min-h-screen bg-pink-50 text-slate-900 pb-20 relative overflow-hidden">
+      {/* Decorative Blobs */}
+      <div className="cute-blob bg-pink-300 w-96 h-96 -top-20 -left-20 rounded-full animate-float" />
+      <div className="cute-blob bg-purple-300 w-80 h-80 top-1/2 -right-20 rounded-full animate-float" style={{ animationDelay: '1s' }} />
+      <div className="cute-blob bg-yellow-200 w-64 h-64 bottom-20 left-1/4 rounded-full animate-float" style={{ animationDelay: '2s' }} />
+
+      <header className="bg-white/70 backdrop-blur-lg sticky top-0 z-50 border-b border-pink-100">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-brand-400 to-brand-600 rounded-[1.5rem] text-white shadow-lg shadow-brand-200 animate-bounce-soft">
+                <ShieldCheck size={28} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 leading-none">DocDelivery</h1>
+                <p className="text-[10px] uppercase tracking-widest font-black text-brand-500 mt-1">✨ Happy Sending ✨</p>
+              </div>
             </div>
-            <div className="sm:hidden mt-3 flex justify-center"><RoleSwitcher /></div>
+            
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:flex flex-col items-end">
+                <p className="text-sm font-black text-slate-900">{currentUser.name}</p>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
+                    {currentUser.role === 'sender' ? 'ผู้นำส่ง (Sender)' : 
+                     currentUser.role === 'receiver' ? 'ผู้รับมอบ (Receiver)' : 
+                     'ผู้ดูแลระบบ (Admin)'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={logout}
+                className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all bg-white/50 border border-slate-100 shadow-sm"
+                title="ออกจากระบบ"
+              >
+                <LogOut size={20} />
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
-      <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <SummaryCard title="ส่งแล้ววันนี้" count={docsSentToday.length} icon={<PlusCircleIcon />} color="blue" />
-                <SummaryCard title="ค้างรับ (Pending)" count={docsPendingReceipt.length} icon={<ClockIcon />} color="yellow" />
-                <SummaryCard title="รับแล้ว (Received)" count={docsReceived.length} icon={<CheckCircleIcon />} color="green" />
+      <main className="container mx-auto p-4 sm:p-6 lg:p-8 max-w-5xl">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-8"
+        >
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <SummaryCard title="ส่งแล้ววันนี้" count={docsSentToday.length} icon={<TrendingUp />} color="blue" />
+            <SummaryCard title="ค้างรับ (Pending)" count={docsPendingReceipt.length} icon={<Clock />} color="yellow" />
+            <SummaryCard title="รับแล้ว (Received)" count={docsReceived.length} icon={<CheckCircle />} color="green" />
+          </div>
+
+          {/* Tab Switcher & Report Button */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex p-1.5 bg-slate-100 rounded-2xl w-full sm:w-fit">
+              <button 
+                onClick={() => setActiveTab('tasks')}
+                className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+                  activeTab === 'tasks' 
+                    ? 'bg-white text-brand-600 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <LayoutGrid size={18} />
+                {currentUser.role === 'admin' ? 'แดชบอร์ดแอดมิน' : (currentUser.role === 'sender' ? 'รายการที่ฉันส่ง' : 'รายการรอรับมอบ')}
+              </button>
+              <button 
+                onClick={() => setActiveTab('all')}
+                className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+                  activeTab === 'all' 
+                    ? 'bg-white text-brand-600 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Database size={18} />
+                สถานะเอกสารทั้งหมด
+              </button>
             </div>
 
-            {userRole === 'sender' && (
-                <div className="space-y-6">
-                    {showForm 
-                        ? <DocumentForm onSubmit={addDocument} onCancel={() => setShowForm(false)} />
-                        : <button onClick={() => setShowForm(true)} className="w-full flex items-center justify-center gap-3 bg-blue-600 text-white font-bold py-4 px-4 rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform duration-150 ease-in-out active:scale-95 shadow-lg"><PlusCircleIcon className="h-6 w-6" />[ + บันทึกการนำส่งเอกสารใหม่ ]</button>
-                    }
+            <button 
+              onClick={() => setShowReport(true)}
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 font-black rounded-2xl hover:bg-brand-100 transition-all w-full sm:w-fit"
+            >
+              <FileSpreadsheet size={20} />
+              รายงานสรุปผล
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Action Section */}
+            <div className="lg:col-span-4 space-y-6">
+              {currentUser.role === 'sender' && (
+                <div className="sticky top-24">
+                  <AnimatePresence mode="wait">
+                    {showForm ? (
+                      <motion.div
+                        key="form"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                      >
+                        <DocumentForm 
+                          onSubmit={addDocument} 
+                          onCancel={() => setShowForm(false)} 
+                          currentUser={currentUser}
+                        />
+                      </motion.div>
+                    ) : (
+                      <motion.button 
+                        key="btn"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={() => setShowForm(true)} 
+                        className="btn-primary w-full py-6 text-lg rounded-[2rem]"
+                      >
+                        <PlusCircle size={24} />
+                        บันทึกการนำส่งใหม่
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
                 </div>
-            )}
-            
-            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
-                <div className="flex items-center gap-3 mb-4"><ArchiveIcon className="h-6 w-6 text-blue-600" /><h2 className="text-xl font-bold">{userRole === 'sender' ? 'ประวัติการส่งทั้งหมด' : 'รายการเอกสารที่รอรับ'}</h2></div>
-                <DocumentList documents={documentsToDisplay} onConfirmReceipt={confirmReceipt} userRole={userRole} />
+              )}
+              
+              <div className="glass-card p-6 rounded-[2rem] hidden lg:block">
+                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                  <FileText size={18} className="text-brand-500" />
+                  คำแนะนำการใช้งาน
+                </h3>
+                <ul className="text-sm text-slate-500 space-y-3">
+                  <li className="flex gap-2">
+                    <span className="text-brand-500 font-bold">•</span>
+                    ผู้ส่งต้องระบุข้อมูลให้ครบถ้วนและแจ้งรหัสยืนยันแก่ผู้รับ
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-brand-500 font-bold">•</span>
+                    ผู้รับต้องตรวจสอบเอกสารและกรอกรหัสยืนยันเพื่อรับมอบ
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-brand-500 font-bold">•</span>
+                    ระบบจะบันทึกเวลาและผู้ดำเนินการเพื่อความโปร่งใส
+                  </li>
+                </ul>
+              </div>
             </div>
-        </div>
+
+            {/* List Section */}
+            <div className="lg:col-span-8">
+              <div className="glass-card p-6 sm:p-8 rounded-[2rem]">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-100 rounded-xl text-slate-600">
+                      {activeTab === 'tasks' ? <Archive size={20} /> : <Database size={20} />}
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-900">
+                      {activeTab === 'tasks' 
+                        ? (currentUser.role === 'sender' ? 'ประวัติการส่ง' : 'รายการรอรับมอบ')
+                        : 'ฐานข้อมูลสถานะเอกสาร'}
+                    </h2>
+                  </div>
+                  <span className="px-4 py-1.5 bg-slate-100 text-slate-500 text-xs font-bold rounded-full">
+                    {documentsToDisplay.length} รายการ
+                  </span>
+                </div>
+                
+                <DocumentList 
+                  documents={documentsToDisplay} 
+                  onConfirmReceipt={confirmReceipt} 
+                  onAddMessage={addHistoryMessage}
+                  onDelete={deleteDocument}
+                  onUpdate={updateDocument}
+                  userRole={currentUser.role} 
+                />
+              </div>
+            </div>
+          </div>
+        </motion.div>
       </main>
       
-      <footer className="text-center py-6 mt-8 text-sm text-slate-500"><p>&copy; {new Date().getFullYear()} Document Delivery System. All rights reserved.</p></footer>
+      <footer className="text-center py-10 text-xs font-bold text-slate-400 uppercase tracking-widest">
+        <p>&copy; {new Date().getFullYear()} DocDelivery Secure System</p>
+      </footer>
+
+      <ReportModal 
+        isOpen={showReport} 
+        onClose={() => setShowReport(false)} 
+        documents={documents} 
+      />
     </div>
   );
 };
