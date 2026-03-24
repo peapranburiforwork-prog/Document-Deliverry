@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "Document": {
+      "title": "Document",
+      "description": "A document record for delivery tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "documentNumber": { "type": "string" },
+        "item": { "type": "string" },
+        "payee": { "type": "string" },
+        "amount": { "type": "number" },
+        "sender": { "type": "string" },
+        "senderId": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "received"] },
+        "receivedBy": { "type": "string" },
+        "receivedById": { "type": "string" },
+        "receivedAt": { "type": "string", "format": "date-time" },
+        "verificationCode": { "type": "string" }
+      },
+      "required": ["id", "documentNumber", "item", "amount", "sender", "submittedAt", "status", "verificationCode"]
+    }
+  },
+  "firestore": {
+    "/documents/{documentId}": {
+      "schema": "Document",
+      "description": "Collection of all delivery documents"
+    }
+  }
+}

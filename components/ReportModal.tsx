@@ -64,7 +64,7 @@ const ReportModal: React.FC<ReportModalProps> = ({
       const authWindow = window.open(url, 'google_auth_popup', 'width=600,height=700');
       
       if (!authWindow) {
-        alert('Please allow popups for this site to connect your Google account.');
+        setError('กรุณาอนุญาตให้เปิดหน้าต่างป๊อปอัพเพื่อเชื่อมต่อบัญชี Google');
         return;
       }
 

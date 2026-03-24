@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
 import cookieParser from "cookie-parser";
 
 const app = express();
@@ -31,19 +32,25 @@ const saveAdminConfig = (config: any) => {
 };
 
 // Google OAuth Configuration
-const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || "").trim().replace(/^https?:\/\//, "");
-const GOOGLE_CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
-const APP_URL = (process.env.APP_URL || "").trim().replace(/\/$/, "");
+const getGoogleCredentials = () => {
+  const clientId = (process.env.GOOGLE_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  
+  if (!clientId || !clientSecret) {
+    console.error("❌ CRITICAL ERROR: Missing Google OAuth environment variables (GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET)");
+  }
+  
+  return { clientId, clientSecret };
+};
 
-if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !APP_URL) {
-  console.error("❌ CRITICAL ERROR: Missing Google OAuth environment variables!");
-}
-
-const oauth2Client = new google.auth.OAuth2(
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  `${APP_URL}/auth/google/callback`
-);
+// Helper to get dynamic redirect URI
+const getRedirectUri = (req: express.Request) => {
+  // Force use of APP_URL environment variable to ensure consistency
+  const base = (process.env.APP_URL || "").trim().replace(/\/$/, "");
+  const uri = `${base}/auth/google/callback`;
+  console.log(`🔗 Forced Redirect URI: ${uri}`);
+  return uri;
+};
 
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -56,7 +63,36 @@ const SCOPES = [
 // Auth Routes
 const ADMIN_EMAILS = ['peapranburiforwork@gmail.com'];
 
+app.get("/api/debug/env", (req, res) => {
+  const { clientId, clientSecret } = getGoogleCredentials();
+  res.json({
+    clientId: clientId ? `${clientId.substring(0, 5)}...` : 'MISSING',
+    clientSecret: clientSecret ? `${clientSecret.substring(0, 5)}...` : 'MISSING',
+    nodeEnv: process.env.NODE_ENV,
+    generatedRedirectUri: getRedirectUri(req),
+    headers: {
+      host: req.get('host'),
+      forwardedHost: req.headers['x-forwarded-host'],
+      forwardedProto: req.headers['x-forwarded-proto']
+    }
+  });
+});
+
 app.get("/api/auth/google/url", (req, res) => {
+  const { clientId, clientSecret } = getGoogleCredentials();
+  
+  if (!clientId || !clientSecret) {
+    return res.status(500).json({ 
+      error: 'Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the app settings.' 
+    });
+  }
+
+  const oauth2Client = new OAuth2Client(
+    clientId,
+    clientSecret,
+    getRedirectUri(req)
+  );
+  
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
@@ -65,20 +101,48 @@ app.get("/api/auth/google/url", (req, res) => {
   res.json({ url });
 });
 
-app.get("/auth/google/callback", async (req, res) => {
+app.get(["/auth/google/callback", "/auth/google/callback/"], async (req, res) => {
   const { code } = req.query;
+  const { clientId, clientSecret } = getGoogleCredentials();
+
+  console.log('DEBUG: Callback received');
+  console.log('DEBUG: clientId exists:', !!clientId);
+  console.log('DEBUG: code exists:', !!code);
+
+  if (!clientId || !clientSecret) {
+    console.error("❌ Google OAuth credentials missing in callback");
+    return res.status(500).send("Google OAuth is not configured on the server.");
+  }
+
+  if (!code) {
+    console.error("❌ Authorization code missing in callback");
+    return res.status(400).send("Authorization code is missing.");
+  }
+
+  const redirectUri = getRedirectUri(req);
+  console.log(`DEBUG: Using Redirect URI: ${redirectUri}`);
+
+  const oauth2Client = new OAuth2Client(
+    clientId,
+    clientSecret,
+    redirectUri
+  );
+
   try {
+    console.log('DEBUG: Attempting to get tokens...');
     const { tokens } = await oauth2Client.getToken(code as string);
+    console.log('DEBUG: Tokens received successfully');
     oauth2Client.setCredentials(tokens);
     
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    console.log('DEBUG: Fetching user info...');
     const userInfo = await oauth2.userinfo.get();
     
     const email = userInfo.data.email;
     const name = userInfo.data.name;
+    console.log(`DEBUG: User authenticated: ${email}`);
 
     if (ADMIN_EMAILS.includes(email!)) {
-      // Save admin tokens to file so all users can use them to sync
       saveAdminConfig({ tokens });
     }
 
@@ -111,8 +175,10 @@ app.get("/auth/google/callback", async (req, res) => {
         </body>
       </html>
     `);
-  } catch (error) {
-    res.status(500).send('Authentication failed');
+  } catch (error: any) {
+    console.error('❌ Auth Callback Error:', error);
+    const errorDetails = error.response?.data || error.message || 'Unknown error';
+    res.status(500).send(`Authentication failed: ${JSON.stringify(errorDetails)}`);
   }
 });
 
@@ -135,14 +201,31 @@ app.get("/api/admin/status", (req, res) => {
   });
 });
 
-app.post("/api/sheets/sync", async (req, res) => {
+// Middleware to check if user is admin
+const isAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const profileStr = req.cookies.user_profile;
+  if (!profileStr) return res.status(401).json({ error: 'Not authenticated' });
+  const profile = JSON.parse(profileStr);
+  if (profile.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
+// Protected Admin Routes
+app.post("/api/sheets/sync", isAdmin, async (req, res) => {
   const config = getAdminConfig();
   if (!config.tokens) {
     return res.status(401).json({ error: 'Admin has not linked Google Drive yet' });
   }
 
   const { documents } = req.body;
+  const { clientId, clientSecret } = getGoogleCredentials();
+  
+  const oauth2Client = new OAuth2Client(
+    clientId,
+    clientSecret
+  );
   oauth2Client.setCredentials(config.tokens);
+  
   const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
 
   try {
@@ -197,7 +280,13 @@ app.get("/api/sheets/load", async (req, res) => {
     return res.status(401).json({ error: 'Admin has not configured the database yet' });
   }
 
+  const { clientId, clientSecret } = getGoogleCredentials();
+  const oauth2Client = new OAuth2Client(
+    clientId,
+    clientSecret
+  );
   oauth2Client.setCredentials(config.tokens);
+  
   const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
 
   try {
@@ -272,8 +361,11 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+    console.log(`🌍 Mode: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("❌ Failed to start server:", err);
+});
